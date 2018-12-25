@@ -12,16 +12,18 @@ from setuptools import setup, find_packages
 
 setup(
     name='wikiquote2fortune',
-    version='0.1.1',
+    version='0.2.0',
     description="Create a fortune file from a wikiquote page",
     author='Daniel Kertesz',
     author_email='daniel@spatof.org',
-    url='',
+    url='https://github.com/piger/wikiquote2fortune',
     license='BSD',
     long_description=__doc__,
     install_requires=[
-        'beautifulsoup4>=4',
-        'requests>=1.2',
+        'beautifulsoup4==4.6.3',
+        'Click==7.0',
+        'lxml==4.2.5',
+        'requests==2.21.0',
     ],
     include_package_data=True,
     packages=find_packages(),

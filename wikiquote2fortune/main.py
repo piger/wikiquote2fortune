@@ -1,35 +1,38 @@
-# -*- coding: utf-8 -*-
 import os
 import re
-import codecs
-from optparse import OptionParser
 import textwrap
+import click
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString, Tag
 
 
-def squeeze_ws(s):
-    """Squeeze two ore more whitespaces into one"""
-    return re.sub(r'\s{2,}', u' ', s)
+WIKIMEDIA_API_URL = 'https://en.wikiquote.org/w/api.php'
+
+
+def squeeze_whitespaces(text):
+    return re.sub(r'\s+', ' ', text)
+
 
 def format_quote(season, episode, rows):
+    """Reformat the text of a quote to be displayed as a fortune cookie"""
+
     expanded = []
 
     for row in rows:
-        colon = row.find(u':')
+        colon = row.find(':')
 
         if colon == -1:
             expanded.extend(textwrap.wrap(row))
-            expanded.append(u"")
+            expanded.append("")
         else:
             indent = colon + 2
-            expanded.extend(textwrap.wrap(row, subsequent_indent=u" " * indent))
+            expanded.extend(textwrap.wrap(row, subsequent_indent=" " * indent))
 
-    text = u'\n'.join(expanded)
+    text = '\n'.join(expanded)
 
-    season = squeeze_ws(season)
-    episode = squeeze_ws(episode)
+    season = squeeze_whitespaces(season)
+    episode = squeeze_whitespaces(episode)
 
     q = {
         'season': season,
@@ -38,62 +41,103 @@ def format_quote(season, episode, rows):
     }
     return q
 
-def scrape(url):
-    rv = requests.get(url)
+
+def fetch_page(name):
+    """Fetch a Wikiquote page using the Wikimedia APIs"""
+
+    params = {
+        'action': 'parse',
+        'format': 'json',
+        'page': name,
+    }
+    rv = requests.get(WIKIMEDIA_API_URL, params=params)
     if rv.status_code != 200:
-        print "HTTP Error? %s" % rv
-        return []
+        print(f"Unexpected HTTP code: {rv.status_code}\n{rv}")
+        return None
 
     rv.encoding = 'utf-8'
-    soup = BeautifulSoup(rv.text)
+    data = rv.json()
+    try:
+        body = data['parse']['text']['*']
+        title = data['parse']['title']
+    except ValueError:
+        print("Something is wrong with the server response")
+        raise
 
-    current_season = None
-    current_episode = None
+    return title, body
+
+
+def h3_followed_by_span_headline(tag):
+    if tag.name != 'h3':
+        return False
+
+    if tag.next_element.name != 'span':
+        return False
+
+    if tag.find('span', attrs={'class': 'mw-headline'}) is None:
+        return False
+
+    return True
+
+
+def parse_page(page_body):
+    """Parse the HTML contents of a Wikiquote page and returns a list of quotes"""
+
+    soup = BeautifulSoup(page_body, 'lxml')
     quotes = []
+    done = False
 
-    for elm in soup.body.next_elements:
-        if isinstance(elm, NavigableString):
-            continue
+    # <h3> usually is the title of an episode
+    for episode_block in soup.find_all(h3_followed_by_span_headline):
+        if done:
+            break
 
-        if elm.name == 'h2':
-            span = elm.find('span')
-            if span:
-                current_season = span.string
+        next_element = episode_block.next_element
+        if next_element.attrs['id'] == 'External_links':
+            break
 
-        elif elm.name == 'h3':
-            span = elm.find('span')
-            if span and u'mw-headline' in span.attrs.get('class', []):
-                current_episode = u' '.join(span.strings)
+        # <h2> is the name of the season
+        season_name = episode_block.find_previous('h2').find('span').text
+        episode_name = episode_block.find('span', attrs={'class': 'mw-headline'}).text
 
-        elif elm.name == 'dl':
-            rows = []
+        lines = []
+        for element in episode_block.next_siblings:
+            ns = element.next_sibling
 
-            for row in elm.find_all('dd'):
-                text = u' '.join(row.strings)
-                text = re.sub(r'^([^:]+) :\s+', u'\\1: ', text)
-                rows.append(text)
+            # h3 is the next episode line
+            if ns is None or ns.name == 'h3':
+                break
 
-            quote = format_quote(current_season, current_episode, rows)
-            quotes.append(quote)
+            # XXX this is not always the last section of the page
+            if ns.name == 'h2' and ns.next_element.attrs['id'] == 'External_links':
+                done = True
+                break
+
+            # <HR> separates quotes
+            if element.name == 'hr':
+                quote = format_quote(season_name, episode_name, lines)
+                quotes.append(quote)
+                lines = []
+                continue
+
+            # this can be ignored
+            if element.string == '\n':
+                continue
+
+            lines.extend(element.text.split("\n"))
 
     return quotes
 
-def main():
-    parser = OptionParser()
-    parser.add_option('-u', '--url', help="WikiQuotes page URL")
-    parser.add_option('-O', '--output', metavar='FILENAME', help="Output filename")
-    parser.add_option('-n', '--name', help="Name of Thing")
 
-    (opts, args) = parser.parse_args()
-    if not opts.url or not opts.output or not opts.name:
-        parser.error("You must specify an URL, a name and an output filename!")
-        
-    quotes = scrape(opts.url)
-    with codecs.open(opts.output, 'w', encoding='utf-8') as fd:
-        for quote in quotes:
-            fd.write(u"%s\n\n" % quote['text'])
-            fd.write(u"\t\"%s: %s, %s\"\n" % (opts.name, quote['episode'], quote['season']))
-            fd.write(u"%\n")
+@click.command()
+@click.option('-o', '--output', type=click.File('wb'), metavar='FILENAME', default='-',
+              help="Output filename")
+@click.argument('name')
+def main(output, name):
+    title, content = fetch_page(name)
+    quotes = parse_page(content)
 
-if __name__ == '__main__':
-    main()
+    for quote in quotes:
+        output.write(f"{quote['text']}\n\n".encode('utf-8'))
+        output.write(f"\t\"{title}: {quote['episode']}, {quote['season']}\"\n".encode('utf-8'))
+        output.write("%\n".encode('utf-8'))
