@@ -126,9 +126,10 @@ def parse_page(page_body):
 
             # <h2> is the next episode, or another unrelated section
             if ns.name == "h2":
-                # if it's followed by the "External Links" section, we're done with the quotes.
+                # if it's followed by the "External Links" or "Cast" sections then we're done with
+                # the quotes.
                 next_span = ns.find(
-                    "span", attrs={"id": "External_links", "class": "mw-headline"}
+                    "span", attrs={"id": ["Cast", "External_links"], "class": "mw-headline"}
                 )
                 if next_span is not None:
                     done = True
