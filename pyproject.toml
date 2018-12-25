@@ -5,7 +5,7 @@ description = "Create a fortune file from a wikiquote page"
 authors = ["Daniel Kertesz <daniel@spatof.org>"]
 license = "BSD"
 
-readme = "README.md"
+readme = "README.rst"
 repository = "https://github.com/piger/wikiquote2fortune"
 homepage = "https://github.com/piger/wikiquote2fortune"
 
@@ -19,6 +19,7 @@ lxml = "^4.2"
 [tool.poetry.dev-dependencies]
 see = "^1.4"
 better_exceptions = "^0.2.1"
+black = { version = "18.9b0", python = "^3.6" }
 
 [tool.poetry.scripts]
 wikiquote2fortune = "wikiquote2fortune.main:main"
