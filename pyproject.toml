@@ -27,3 +27,6 @@ wikiquote2fortune = "wikiquote2fortune.main:main"
 [build-system]
 requires = ["poetry>=0.12"]
 build-backend = "poetry.masonry.api"
+
+[tool.black]
+line-length = 100

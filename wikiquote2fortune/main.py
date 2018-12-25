@@ -72,6 +72,23 @@ def h3_followed_by_span_headline(tag):
     return True
 
 
+def must_process(element):
+    # skip thumbnails
+    if hasattr(element, "attrs") and "thumb" in element.get("class", []):
+        return False
+
+    # this can be ignored
+    if element.string == "\n":
+        return False
+
+    # small sections usually contain notes
+    if element.find("small"):
+        return False
+
+    # finally, the element must have a ".text" attribute
+    return hasattr(element, "text")
+
+
 def parse_page(page_body):
     """Parse the HTML contents of a Wikiquote page and returns a list of quotes"""
 
@@ -81,77 +98,59 @@ def parse_page(page_body):
 
     # <h3> usually is the title of an episode
     for episode_block in soup.find_all(h3_followed_by_span_headline):
-        if done:
-            break
-
-        next_element = episode_block.next_element
-        if next_element.attrs["id"] == "External_links":
-            break
-
         # <h2> is the name of the season
         season_name = episode_block.find_previous("h2").find("span").text
         episode_name = episode_block.find("span", attrs={"class": "mw-headline"}).text
-
-        lines = []
-        for element in episode_block.next_siblings:
-            do_not_process = False
-
-            # skip thumbnails
-            if hasattr(element, "attrs") and "thumb" in element.get("class", []):
-                do_not_process = True
-
-            # <HR> separates quotes
-            if element.name == "hr":
-                quote = format_quote(season_name, episode_name, lines)
-                quotes.append(quote)
-                lines = []
-                do_not_process = True
-
-            # this can be ignored
-            if element.string == "\n":
-                do_not_process = True
-
-            # small sections usually contain notes
-            if element.find("small"):
-                do_not_process = True
-
-            if do_not_process is False and hasattr(element, "text"):
-                lines.extend(element.text.split("\n"))
-
-            ns = element.next_sibling
-
-            # h3 is the next episode line
-            if ns is None or ns.name == "h3":
-                break
-
-            # <h2> is the next episode, or another unrelated section
-            if ns.name == "h2":
-                # if it's followed by the "External Links" or "Cast" sections then we're done with
-                # the quotes.
-                next_span = ns.find(
-                    "span", attrs={"id": ["Cast", "External_links"], "class": "mw-headline"}
-                )
-                if next_span is not None:
-                    done = True
-
-                break
-
-        if lines:
-            quote = format_quote(season_name, episode_name, lines)
-            quotes.append(quote)
-            lines = []
+        new_quotes, stop_parsing = collect_quotes(season_name, episode_name, episode_block)
+        quotes.extend(new_quotes)
+        if stop_parsing:
+            break
 
     return quotes
 
 
+def collect_quotes(season_name, episode_name, episode_block):
+    quotes = []
+    lines = []
+    stop_parsing = False
+
+    for element in episode_block.next_siblings:
+        # <HR> separates quotes
+        if element.name == "hr":
+            quotes.append(format_quote(season_name, episode_name, lines))
+            lines = []
+        else:
+            if must_process(element):
+                lines.extend(element.text.split("\n"))
+
+        sib = element.next_sibling
+
+        # h3 is the next episode line
+        if sib is None or sib.name == "h3":
+            break
+
+        # <h2> is the next episode, or another unrelated section
+        if sib.name == "h2":
+            # if it's followed by the "External Links" or "Cast" sections then we're done with
+            # the quotes.
+            next_span = sib.find(
+                "span", attrs={"id": ["Cast", "External_links"], "class": "mw-headline"}
+            )
+            if next_span is not None:
+                stop_parsing = True
+
+            break
+
+    # Last quote of a section won't be followed by <HR> but we must still collect the quote!
+    if lines:
+        quotes.append(format_quote(season_name, episode_name, lines))
+
+    return (quotes, stop_parsing)
+
+
 @click.command()
 @click.option(
-    "-o",
-    "--output",
-    type=click.File("wb"),
-    metavar="FILENAME",
-    default="-",
-    help="Output filename",
+    "-o", "--output", type=click.File("wb"), metavar="FILENAME", default="-", help="Output filename"
 )
 @click.argument("name")
 def main(output, name):
@@ -160,7 +159,5 @@ def main(output, name):
 
     for quote in quotes:
         output.write(f"{quote['text']}\n\n".encode("utf-8"))
-        output.write(
-            f"\t\"{title}: {quote['episode']}, {quote['season']}\"\n".encode("utf-8")
-        )
+        output.write(f"\t\"{title}: {quote['episode']}, {quote['season']}\"\n".encode("utf-8"))
         output.write("%\n".encode("utf-8"))
