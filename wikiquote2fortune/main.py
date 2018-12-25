@@ -94,29 +94,51 @@ def parse_page(page_body):
 
         lines = []
         for element in episode_block.next_siblings:
-            ns = element.next_sibling
+            do_not_process = False
 
-            # h3 is the next episode line
-            if ns is None or ns.name == "h3":
-                break
-
-            # XXX this is not always the last section of the page
-            if ns.name == "h2" and ns.next_element.attrs["id"] == "External_links":
-                done = True
-                break
+            # skip thumbnails
+            if hasattr(element, "attrs") and "thumb" in element.get("class", []):
+                do_not_process = True
 
             # <HR> separates quotes
             if element.name == "hr":
                 quote = format_quote(season_name, episode_name, lines)
                 quotes.append(quote)
                 lines = []
-                continue
+                do_not_process = True
 
             # this can be ignored
             if element.string == "\n":
-                continue
+                do_not_process = True
 
-            lines.extend(element.text.split("\n"))
+            # small sections usually contain notes
+            if element.find("small"):
+                do_not_process = True
+
+            if do_not_process is False and hasattr(element, "text"):
+                lines.extend(element.text.split("\n"))
+
+            ns = element.next_sibling
+
+            # h3 is the next episode line
+            if ns is None or ns.name == "h3":
+                break
+
+            # <h2> is the next episode, or another unrelated section
+            if ns.name == "h2":
+                # if it's followed by the "External Links" section, we're done with the quotes.
+                next_span = ns.find(
+                    "span", attrs={"id": "External_links", "class": "mw-headline"}
+                )
+                if next_span is not None:
+                    done = True
+
+                break
+
+        if lines:
+            quote = format_quote(season_name, episode_name, lines)
+            quotes.append(quote)
+            lines = []
 
     return quotes
 
