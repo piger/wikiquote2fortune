@@ -21,8 +21,8 @@ setup(
     long_description=__doc__,
     install_requires=[
         'beautifulsoup4==4.10.0',
-        'Click==7.1.2',
-        'lxml==4.6.4',
+        'Click==8.0.3',
+        'lxml==4.7.1',
         'requests==2.26.0',
     ],
     include_package_data=True,
