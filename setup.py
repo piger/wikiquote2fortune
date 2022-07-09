@@ -22,7 +22,7 @@ setup(
     install_requires=[
         'beautifulsoup4==4.10.0',
         'Click==8.0.3',
-        'lxml==4.7.1',
+        'lxml==4.9.1',
         'requests==2.26.0',
     ],
     include_package_data=True,
